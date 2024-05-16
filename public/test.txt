@@ -1,0 +1,115 @@
+const express = require("express");
+// const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const stripe = require("stripe")("sk_test_51PAR0XSGBiTyUFoFow7Ji8kxFanBeeHyKRBjvGwKDC0t4qGrQH8uKbcN6BgeDDqWApjnsDC7vLgV6GofL5I1Wr3I00RcLJQgoV");
+
+const connection = require("./app");
+connection();
+
+const app = express();
+
+app.use(cors());
+app.use(bodyParser.json());
+
+const signupSchema = new mongoose.Schema({
+  username: String,
+  email: String,
+  password: String,
+  // tokens: [{ token: { type: String, required: true } }]
+});
+
+// signupSchema.methods.generateAuthToken = async function () {
+//   try {
+//     const token = jwt.sign({ _id: this._id }, process.env.SECRET_KEY);
+//     this.tokens = this.tokens.concat({ token });
+//     await this.save();
+//     return token;
+//   } catch (error) {
+//     console.error(error);
+//     throw new Error("Token generation failed");
+//   }
+// };
+
+
+const Signup = mongoose.model("Signup", signupSchema);
+// const Login = mongoose.model("Login", signupSchema);
+
+
+app.post("/signup", async (req, res) => {
+  try {
+    const { username, email, password, confirmPassword } = req.body;
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: "Passwords do not match" });
+    }
+
+    const signup = new Signup({ username, email, password });
+    await signup.save();
+
+    res.status(201).json({ message: "User registered successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.post("/checkout", async (req, res) => {
+  try {
+    const { totalAmount } = req.body;
+
+    if (!totalAmount || typeof totalAmount !== "number" || totalAmount <= 0) {
+      return res.status(400).json({ message: "Invalid total amount" });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      shipping_address_collection: {
+        allowed_countries: ['US', 'CA', 'IN'],
+      },
+      payment_method_types: ["card"],
+      line_items: [{
+        price_data: {
+          currency: "inr",
+          product_data: { name: "Total Amount" },
+          unit_amount: totalAmount * 100,
+        },
+        quantity: 1,
+      }],
+      mode: "payment",
+      success_url: "http://localhost:3000/success",
+      cancel_url: "http://localhost:3000/cancel",
+    });
+
+    res.status(200).json({ id: session.id });
+  } catch (err) {
+    console.error("Error in /checkout:", err);
+    res.status(500).json({ message: "Failed to initiate checkout" });
+  }
+});
+
+app.post("/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const user = await Signup.findOne({ username });
+    if (!user) {
+      return res.status(400).json({ message: "User not found. Please register first." });
+    }
+
+    if (user.password !== password) {
+      return res.status(400).json({ message: "Invalid password" });
+    }
+
+    // const token = await user.generateAuthToken();
+    // res.status(200).json({ message: "Login successful", token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// const PORT = process.env.PORT || 8080;
+app.listen(8080, () => {
+  console.log(`Server is running on port 8080`);
+});
